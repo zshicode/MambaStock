@@ -1,7 +1,7 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from utils import *
+from sklearn import metrics
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,21 +21,38 @@ parser.add_argument('--wd', type=float, default=1e-5,
 parser.add_argument('--hidden', type=int, default=16,
                     help='Dimension of representations')
 parser.add_argument('--layer', type=int, default=2,
-                    help='Num of classes')                   
+                    help='Num of layers')
+parser.add_argument('--n-test', type=int, default=300,
+                    help='Size of test set')
+parser.add_argument('--ts-code', type=str, default='601988',
+                    help='Stock code')                    
 
 args = parser.parse_args()
 args.cuda = args.use_cuda and torch.cuda.is_available()
 
+def evaluation_metric(y_test,y_hat):
+    MSE = metrics.mean_squared_error(y_test, y_hat)
+    RMSE = MSE**0.5
+    MAE = metrics.mean_absolute_error(y_test,y_hat)
+    R2 = metrics.r2_score(y_test,y_hat)
+    print('%.4f %.4f %.4f %.4f' % (MSE,RMSE,MAE,R2))
+
+def set_seed(seed,cuda):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if cuda:
+        torch.cuda.manual_seed(seed)
+
+def dateinf(series, n_test):
+    lt = len(series)
+    print('Training start',series[0])
+    print('Training end',series[lt-n_test-1])
+    print('Testing start',series[lt-n_test])
+    print('Testing end',series[lt-1])
+
 set_seed(args.seed,args.cuda)
 
-def PredictWithData(train, testX):
-    # transform list into array
-    train = np.asarray(train)
-    # print('train', train)
-    # split into input and output columns
-    trainX, trainy = train[:, :-1], train[:, -1]
-    # print('trainX', trainX, 'trainy', trainy)
-    # fit model
+def PredictWithData(trainX, trainy, testX):
     config = MambaConfig(d_model=args.hidden, n_layers=args.layer)
     clf = Mamba(len(trainX[0]),config)
     opt = torch.optim.Adam(clf.parameters(),lr=args.lr,weight_decay=args.wd)
@@ -74,29 +91,25 @@ def walk_forward_validation(train, test):
     predictions = PredictWithData(history, testX)
     return testy,predictions
 
-data = pd.read_csv('./601988.SH.csv')
-data.index = pd.to_datetime(data['trade_date'], format='%Y%m%d')
-data = data.loc[:, ['open', 'high', 'low', 'close', 'vol', 'amount']]
-# data = pd.DataFrame(data, dtype=np.float64)
-close = data.pop('close')
-data.insert(5, 'close', close)
-data1 = data.iloc[3501:, 5]
-residuals = pd.read_csv('./ARIMA_residuals1.csv')
-residuals.index = pd.to_datetime(residuals['trade_date'])
-residuals.pop('trade_date')
-merge_data = pd.merge(data, residuals, on='trade_date')
-#merge_data = merge_data.drop(labels='2007-01-04', axis=0)
-time = pd.Series(data.index[3501:])
+data = pd.read_csv(args.ts_code+'.SH.csv')
+data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d')
+close = data.pop('close').values
+ratechg = data['pct_chg'].apply(lambda x:0.01*x).values
+data.drop(columns=['pre_close','change','pct_chg'],inplace=True)
+dat = data.iloc[:,2:].values
+trainX, testX = dat[:-args.n_test, :], dat[-args.n_test:, :]
+trainy = ratechg[:-args.n_test]
+predictions = PredictWithData(trainX, trainy, testX)
+time = data['trade_date'][-args.n_test:]
+data1 = close[-args.n_test:]
+finalpredicted_stock_price = []
+pred = close[-args.n_test-1]
+for i in range(args.n_test):
+    pred = close[-args.n_test-1+i]*(1+predictions[i])
+    finalpredicted_stock_price.append(pred)
 
-Lt = pd.read_csv('./ARIMA.csv')
-Lt = Lt.drop('trade_date', axis=1)
-Lt = np.array(Lt)
-Lt = Lt.flatten().tolist()
-
-train, test = prepare_data(merge_data, n_test=180, n_in=6, n_out=1)
-y, yhat = walk_forward_validation(train, test)
-finalpredicted_stock_price = [i + j for i, j in zip(Lt, yhat)]
-#print('final', finalpredicted_stock_price)
+dateinf(data['trade_date'],args.n_test)
+print('MSE RMSE MAE R2')
 evaluation_metric(data1, finalpredicted_stock_price)
 plt.figure(figsize=(10, 6))
 plt.plot(time, data1, label='Stock Price')

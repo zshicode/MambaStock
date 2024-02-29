@@ -62,6 +62,7 @@ class Mamba(nn.Module):
         self.layers = nn.ModuleList([ResidualBlock(config) for _ in range(config.n_layers)])
         self.norm_f = RMSNorm(config.d_model)
         self.out = nn.Linear(16,1)
+        self.b = nn.Parameter(torch.Tensor(1))
 
     def forward(self, x):
         # x : (B, L, D)
@@ -74,8 +75,8 @@ class Mamba(nn.Module):
         x = self.norm_f(x)
         x = x.squeeze(0)
         x = self.out(x)
-        x = F.tanh(x)
-        return x
+        x = torch.tanh(x)
+        return x.flatten()
     
     def step(self, x, caches):
         # x : (B, L, D)
