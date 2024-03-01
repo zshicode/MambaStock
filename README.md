@@ -51,4 +51,11 @@ args.cuda = args.use_cuda and torch.cuda.is_available()
 
 ## Citation
 
-TODO
+```
+@article{shi2024mamba,
+  title={MambaStock: Selective state space model for stock prediction},
+  author={Zhuangwei Shi},
+  journal={arXiv preprint arXiv:2402.18959},
+  year={2024},
+}
+```
