@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn import metrics
+from sklearn.metrics import mean_squared_error,mean_absolute_error,r2_score
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,10 +31,10 @@ args = parser.parse_args()
 args.cuda = args.use_cuda and torch.cuda.is_available()
 
 def evaluation_metric(y_test,y_hat):
-    MSE = metrics.mean_squared_error(y_test, y_hat)
+    MSE = mean_squared_error(y_test, y_hat)
     RMSE = MSE**0.5
-    MAE = metrics.mean_absolute_error(y_test,y_hat)
-    R2 = metrics.r2_score(y_test,y_hat)
+    MAE = mean_absolute_error(y_test,y_hat)
+    R2 = r2_score(y_test,y_hat)
     print('%.4f %.4f %.4f %.4f' % (MSE,RMSE,MAE,R2))
 
 def set_seed(seed,cuda):
@@ -52,9 +52,23 @@ def dateinf(series, n_test):
 
 set_seed(args.seed,args.cuda)
 
+class Net(nn.Module):
+    def __init__(self,in_dim,out_dim):
+        super().__init__()
+        self.config = MambaConfig(d_model=args.hidden, n_layers=args.layer)
+        self.mamba = nn.Sequential(
+            nn.Linear(in_dim,args.hidden),
+            Mamba(self.config),
+            nn.Linear(args.hidden,out_dim),
+            nn.Tanh()
+        )
+    
+    def forward(self,x):
+        x = self.mamba(x)
+        return x.flatten()
+
 def PredictWithData(trainX, trainy, testX):
-    config = MambaConfig(d_model=args.hidden, n_layers=args.layer)
-    clf = Mamba(len(trainX[0]),config)
+    clf = Net(len(trainX[0]),1)
     opt = torch.optim.Adam(clf.parameters(),lr=args.lr,weight_decay=args.wd)
     xt = torch.from_numpy(trainX).float().unsqueeze(0)
     xv = torch.from_numpy(testX).float().unsqueeze(0)
@@ -78,18 +92,8 @@ def PredictWithData(trainX, trainy, testX):
     clf.eval()
     mat = clf(xv)
     if args.cuda: mat = mat.cpu()
-    # make a one-step prediction
     yhat = mat.detach().numpy().flatten()
     return yhat
-
-def walk_forward_validation(train, test):
-    train = train.values
-    history = [x for x in train]
-    # print('history', history)
-    testX, testy = test.iloc[:, :-1], test.iloc[:, -1]
-    testX = testX.values
-    predictions = PredictWithData(history, testX)
-    return testy,predictions
 
 data = pd.read_csv(args.ts_code+'.SH.csv')
 data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d')

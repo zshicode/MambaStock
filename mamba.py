@@ -54,29 +54,25 @@ class MambaConfig:
             self.dt_rank = math.ceil(self.d_model / 16)
 
 class Mamba(nn.Module):
-    def __init__(self, dim, config: MambaConfig):
+    def __init__(self, config: MambaConfig):
         super().__init__()
 
         self.config = config
-        self.lin = nn.Linear(dim,16)
+
         self.layers = nn.ModuleList([ResidualBlock(config) for _ in range(config.n_layers)])
         self.norm_f = RMSNorm(config.d_model)
-        self.out = nn.Linear(16,1)
-        self.b = nn.Parameter(torch.Tensor(1))
 
     def forward(self, x):
         # x : (B, L, D)
 
         # y : (B, L, D)
-        x = self.lin(x)
+
         for layer in self.layers:
             x = layer(x)
 
         x = self.norm_f(x)
-        x = x.squeeze(0)
-        x = self.out(x)
-        x = torch.tanh(x)
-        return x.flatten()
+
+        return x
     
     def step(self, x, caches):
         # x : (B, L, D)
